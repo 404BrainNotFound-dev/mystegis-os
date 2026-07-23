@@ -1,0 +1,8 @@
+work/
+out/
+*.iso
+*.imp
+*.swp
+*.swo
+*~
+
