@@ -1,25 +1,37 @@
 #!/usr/bin/env bash
-set -euo pipefail 
+set -euo pipefail
 
 clear
 
-echo "============================"
-echo "        Mystegis OS"
-echo "============================"
-echo
+echo "===================================================="
+echo "                    Mystegis OS"
+echo "===================================================="
 echo
 echo "Installer Version 0.2 - Safe Disk Detection"
-echo 
-echo "Available Installation disks:"
+echo
+echo "Available installation disks:"
 echo
 
-if ! command -v lsblk >/dev/null 2>&1; then 
-    echo "[ERROR] lsblk is not installed."
+if ! command -v lsblk >/dev/null 2>&1; then
+    echo "[ERROR] The lsblk command is unavailable."
     exit 1
-fi 
+fi
 
-echo 
-echo 
-echo "==================================================================="
-echo "  No disks Were Changed. Disks selection is not implemented yet."
-echo "==================================================================="
+if lsblk -dn -o TYPE | grep -qx "disk"; then
+    lsblk -d -o NAME,PATH,SIZE,TYPE,MODEL |
+        awk 'NR == 1 || $4 == "disk"'
+else
+    echo "No installation disks were detected."
+fi
+
+echo
+echo "Complete block-device layout:"
+echo
+
+lsblk -o NAME,PATH,SIZE,FSTYPE,TYPE,MOUNTPOINTS
+
+echo
+echo "===================================================="
+echo "No disks were changed."
+echo "Disk selection is not implemented yet."
+echo "===================================================="

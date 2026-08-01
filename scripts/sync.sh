@@ -1,13 +1,12 @@
-#!/usr/bin/env bash 
-set -euo pipefail 
+#!/usr/bin/env bash
+set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-echo "[*] copying installer into ISO profile. . . "
+echo "[*] Copying installer into ISO profile..."
 
 install -Dm755 \
-	installer/mystegis-installer \
-	archiso-profile/airootfs/usr/local/bin/mystegis-installer 
+    installer/mystegis-installer \
+    archiso-profile/airootfs/usr/local/bin/mystegis-installer
 
-echo "[+] Installer Synchronized."
-
+echo "[+] Installer synchronized."
