@@ -1,14 +1,44 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+die() {
+    echo
+    echo "[ERROR] $*" >&2
+    exit 1
+}
+
 clear
 
 echo "===================================================="
 echo "                    Mystegis OS"
 echo "===================================================="
 echo
-echo "Installer Version 0.3 - Safe Disk Selection"
+echo "Installer Version 0.4 - Disk Partitioning"
 echo
+
+[[ $EUID -eq 0 ]] ||
+    die "This installer must be run as root."
+
+[[ -d /sys/firmware/efi ]] ||
+    die "Mystegis currently supports UEFI virtual machines only."
+
+required_commands=(
+    lsblk
+    awk
+    grep
+    wipefs
+    sgdisk
+    blockdev
+    partx
+    udevadm
+    mkfs.fat
+    mkfs.ext4
+)
+
+for command_name in "${required_commands[@]}"; do
+    command -v "$command_name" >/dev/null 2>&1 ||
+        die "Required command is missing: $command_name"
+done
 
 mapfile -t AVAILABLE_DISKS < <(
     lsblk -dnpo NAME,TYPE |
@@ -16,23 +46,23 @@ mapfile -t AVAILABLE_DISKS < <(
 )
 
 if (( ${#AVAILABLE_DISKS[@]} == 0 )); then
-    echo "[ERROR] No installation disks were detected."
-    exit 1
+    die "No installation disks were detected."
 fi
 
 echo "Available installation disks:"
 echo
 
-lsblk -d -o NAME,PATH,SIZE,MODEL,TYPE |
-    awk 'NR == 1 || $NF == "disk"'
+lsblk -d -o NAME,PATH,SIZE,TYPE,MODEL |
+    awk 'NR == 1 || $4 == "disk"'
 
 echo
-echo "This version only selects a disk."
-echo "It does not erase, partition, or format anything."
+echo "WARNING:"
+echo "The selected disk will be completely erased."
+echo "Only use a disposable Mystegis test VM disk."
 echo
 
 while true; do
-    read -rp "Enter a disk path, for example /dev/vda, or q to quit: " DISK
+    read -rp "Enter the disk path, or q to quit: " DISK
 
     if [[ "$DISK" == "q" || "$DISK" == "Q" ]]; then
         echo "Installer cancelled."
@@ -52,18 +82,117 @@ while true; do
         break
     fi
 
-    echo
-    echo "[ERROR] '$DISK' is not one of the listed installation disks."
-    echo
+    echo "[ERROR] '$DISK' is not one of the listed disks."
 done
 
+[[ -b "$DISK" ]] ||
+    die "$DISK is not a block device."
+
+[[ "$(lsblk -dnro TYPE "$DISK")" == "disk" ]] ||
+    die "$DISK is not a whole disk."
+
+DISK_BYTES="$(lsblk -bdnro SIZE "$DISK")"
+
+if (( DISK_BYTES < 8589934592 )); then
+    die "The selected disk must be at least 8 GiB."
+fi
+
+if lsblk -nrpo NAME,MOUNTPOINT "$DISK" |
+    awk 'NF > 1 && $2 != "" {found=1} END {exit !found}'; then
+
+    echo
+    echo "Mounted filesystems were found on $DISK:"
+    lsblk -o NAME,PATH,SIZE,FSTYPE,MOUNTPOINTS "$DISK"
+    die "Unmount the disk before continuing."
+fi
+
 echo
-echo "Selected installation disk:"
-lsblk -d -o NAME,PATH,SIZE,MODEL,TYPE "$DISK"
+echo "Selected disk:"
+lsblk -d -o NAME,PATH,SIZE,TYPE,MODEL "$DISK"
+
+echo
+echo "The following layout will be created:"
+echo "  Partition 1: 512 MiB FAT32 EFI"
+echo "  Partition 2: Remaining space ext4 root"
+echo
+
+read -rp "Re-enter the exact disk path to confirm: " CONFIRM_DISK
+
+[[ "$CONFIRM_DISK" == "$DISK" ]] ||
+    die "Disk confirmation did not match."
+
+read -rp "Type ERASE to permanently erase $DISK: " ERASE_CONFIRMATION
+
+[[ "$ERASE_CONFIRMATION" == "ERASE" ]] || {
+    echo "Installer cancelled. Nothing was changed."
+    exit 0
+}
+
+echo
+echo "[*] Erasing old disk signatures..."
+
+wipefs --all --force "$DISK"
+sgdisk --zap-all "$DISK"
+
+echo "[*] Creating GPT partition table..."
+
+sgdisk \
+    --clear \
+    --new=1:0:+512M \
+    --typecode=1:ef00 \
+    --change-name=1:MYSTEGIS_EFI \
+    --new=2:0:0 \
+    --typecode=2:8300 \
+    --change-name=2:MYSTEGIS_ROOT \
+    "$DISK"
+
+blockdev --rereadpt "$DISK" || true
+partx --update "$DISK" || true
+udevadm settle
+
+if [[ "$DISK" =~ [0-9]$ ]]; then
+    EFI_PARTITION="${DISK}p1"
+    ROOT_PARTITION="${DISK}p2"
+else
+    EFI_PARTITION="${DISK}1"
+    ROOT_PARTITION="${DISK}2"
+fi
+
+for _ in {1..10}; do
+    if [[ -b "$EFI_PARTITION" && -b "$ROOT_PARTITION" ]]; then
+        break
+    fi
+
+    sleep 1
+    udevadm settle
+done
+
+[[ -b "$EFI_PARTITION" ]] ||
+    die "EFI partition did not appear: $EFI_PARTITION"
+
+[[ -b "$ROOT_PARTITION" ]] ||
+    die "Root partition did not appear: $ROOT_PARTITION"
+
+echo "[*] Formatting EFI partition as FAT32..."
+
+mkfs.fat -F 32 -n MYSTEGIS "$EFI_PARTITION"
+
+echo "[*] Formatting root partition as ext4..."
+
+mkfs.ext4 -F -L MYSTEGIS_ROOT "$ROOT_PARTITION"
+
+sync
 
 echo
 echo "===================================================="
-echo "Disk selection accepted: $DISK"
-echo "No disks were changed."
-echo "Disk wiping is not implemented yet."
+echo "Disk preparation completed successfully."
 echo "===================================================="
+echo
+
+lsblk -o NAME,PATH,SIZE,FSTYPE,LABEL,PARTTYPE,TYPE "$DISK"
+
+echo
+echo "EFI partition:  $EFI_PARTITION"
+echo "Root partition: $ROOT_PARTITION"
+echo
+echo "The base system has not been installed yet."
