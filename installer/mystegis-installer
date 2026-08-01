@@ -7,31 +7,63 @@ echo "===================================================="
 echo "                    Mystegis OS"
 echo "===================================================="
 echo
-echo "Installer Version 0.2 - Safe Disk Detection"
-echo
-echo "Available installation disks:"
+echo "Installer Version 0.3 - Safe Disk Selection"
 echo
 
-if ! command -v lsblk >/dev/null 2>&1; then
-    echo "[ERROR] The lsblk command is unavailable."
+mapfile -t AVAILABLE_DISKS < <(
+    lsblk -dnpo NAME,TYPE |
+        awk '$2 == "disk" {print $1}'
+)
+
+if (( ${#AVAILABLE_DISKS[@]} == 0 )); then
+    echo "[ERROR] No installation disks were detected."
     exit 1
 fi
 
-if lsblk -dn -o TYPE | grep -qx "disk"; then
-    lsblk -d -o NAME,PATH,SIZE,TYPE,MODEL |
-        awk 'NR == 1 || $4 == "disk"'
-else
-    echo "No installation disks were detected."
-fi
-
-echo
-echo "Complete block-device layout:"
+echo "Available installation disks:"
 echo
 
-lsblk -o NAME,PATH,SIZE,FSTYPE,TYPE,MOUNTPOINTS
+lsblk -d -o NAME,PATH,SIZE,MODEL,TYPE |
+    awk 'NR == 1 || $NF == "disk"'
+
+echo
+echo "This version only selects a disk."
+echo "It does not erase, partition, or format anything."
+echo
+
+while true; do
+    read -rp "Enter a disk path, for example /dev/vda, or q to quit: " DISK
+
+    if [[ "$DISK" == "q" || "$DISK" == "Q" ]]; then
+        echo "Installer cancelled."
+        exit 0
+    fi
+
+    DISK_FOUND=false
+
+    for AVAILABLE_DISK in "${AVAILABLE_DISKS[@]}"; do
+        if [[ "$DISK" == "$AVAILABLE_DISK" ]]; then
+            DISK_FOUND=true
+            break
+        fi
+    done
+
+    if [[ "$DISK_FOUND" == true ]]; then
+        break
+    fi
+
+    echo
+    echo "[ERROR] '$DISK' is not one of the listed installation disks."
+    echo
+done
+
+echo
+echo "Selected installation disk:"
+lsblk -d -o NAME,PATH,SIZE,MODEL,TYPE "$DISK"
 
 echo
 echo "===================================================="
+echo "Disk selection accepted: $DISK"
 echo "No disks were changed."
-echo "Disk selection is not implemented yet."
+echo "Disk wiping is not implemented yet."
 echo "===================================================="
