@@ -1,17 +1,25 @@
 #!/usr/bin/env bash
-
-set -euo pipefail
+set -euo pipefail 
 
 clear
 
-echo "========================================"
-echo               Mystegis OS
-echo "========================================"
+echo "============================"
+echo "        Mystegis OS"
+echo "============================"
 echo
 echo
-echo " Cybersecurity and Developer's Best Option"
-echo
-echo
-echo "Installer Vsersion 1.0" "Disk Installation Not Implemented yet"
+echo "Installer Version 0.2 - Safe Disk Detection"
+echo 
+echo "Available Installation disks:"
 echo
 
+if ! command -v lsblk >/dev/null 2>&1; then 
+    echo "[ERROR] lsblk is not installed."
+    exit 1
+fi 
+
+echo 
+echo 
+echo "==================================================================="
+echo "  No disks Were Changed. Disks selection is not implemented yet."
+echo "==================================================================="
